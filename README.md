@@ -26,7 +26,7 @@ enter pick · /new add (# tag) · ^e edit · ^d del · esc quit
 ### One-shot
 
 ```bash
-git clone https://github.com/<your-username>/rast-tui.git
+git clone https://github.com/mukh4w/rast-tui.git
 cd rast-tui
 ./install.sh
 source ~/.zshrc
