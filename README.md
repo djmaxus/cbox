@@ -6,10 +6,10 @@
 
 Save your everyday shell commands, fuzzy-find them in a clean terminal UI, and drop the selected command back into your prompt for review before running it.
 
-[![Rust](https://img.shields.io/badge/Rust-2024-f74c00?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
-[![Ratatui](https://img.shields.io/badge/Built%20with-Ratatui-00b4d8?style=for-the-badge)](https://ratatui.rs/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
-[![Crates ready](https://img.shields.io/badge/CLI-rast-blueviolet?style=for-the-badge&logo=gnubash&logoColor=white)](Cargo.toml)
+[![Rust](https://img.shields.io/badge/Rust-2024-f74c00.svg?style=for-the-badge)](https://www.rust-lang.org/)
+[![Ratatui](https://img.shields.io/badge/Ratatui-0.29-00b4d8.svg?style=for-the-badge)](https://ratatui.rs/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
+[![CLI](https://img.shields.io/badge/CLI-rast-8A2BE2.svg?style=for-the-badge)](Cargo.toml)
 
 </div>
 
