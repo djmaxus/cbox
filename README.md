@@ -6,10 +6,10 @@
 
 Save your everyday shell commands, fuzzy-find them in a clean terminal UI, and drop the selected command back into your prompt for review before running it.
 
-[![Rust](https://img.shields.io/badge/Rust-2024-f74c00.svg?style=for-the-badge)](https://www.rust-lang.org/)
-[![Ratatui](https://img.shields.io/badge/Ratatui-0.29-00b4d8.svg?style=for-the-badge)](https://ratatui.rs/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)](LICENSE)
-[![CLI](https://img.shields.io/badge/CLI-rast-8A2BE2.svg?style=for-the-badge)](Cargo.toml)
+[![Rust](https://img.shields.io/badge/Rust-2024-orange?style=for-the-badge)](https://www.rust-lang.org/)
+[![Ratatui](https://img.shields.io/badge/Ratatui-0.29-blue?style=for-the-badge)](https://ratatui.rs/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+[![CLI](https://img.shields.io/badge/CLI-rast-purple?style=for-the-badge)](Cargo.toml)
 
 </div>
 
@@ -265,29 +265,6 @@ Runtime dependencies are bundled into the native binary by Cargo.
 - [ ] Configurable storage filename
 - [ ] More shell integrations
 - [ ] Demo GIF or screenshots in `assets/`
-
----
-
-## 🤝 Contributing
-
-Contributions are welcome.
-
-Good first improvements:
-
-- add screenshots or a GIF demo;
-- improve shell integration docs;
-- add more tests for input editing;
-- package for Cargo, AUR, Homebrew, or Nix;
-- suggest UX improvements for the TUI.
-
-Suggested local checks before opening a PR:
-
-```bash
-cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
-cargo test --all-targets --all-features
-cargo build --release
-```
 
 ---
 
