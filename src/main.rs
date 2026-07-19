@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -101,7 +102,7 @@ fn filter_commands(cmds: &[String], query: &str) -> Vec<usize> {
         .filter_map(|(i, c)| fuzzy_score(query, c).map(|s| (s, i)))
         .collect();
     if query.is_empty() {
-        scored.sort_by(|a, b| b.1.cmp(&a.1));
+        scored.sort_by_key(|(_, idx)| Reverse(*idx));
     } else {
         scored.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
     }
@@ -232,9 +233,7 @@ fn run_tui() -> io::Result<TuiResult> {
             let (prompt_sym, prompt_color, prompt_title) = match mode_view {
                 InputMode::Editing(_) => ("✎ ", Color::Yellow, " edit "),
                 InputMode::Normal => match parse_normal(query_view) {
-                    NormalParse::Add(_) | NormalParse::AddEmpty => {
-                        ("+ ", Color::Green, " add ")
-                    }
+                    NormalParse::Add(_) | NormalParse::AddEmpty => ("+ ", Color::Green, " add "),
                     NormalParse::Search(_) => ("❯ ", Color::Cyan, " search "),
                 },
             };
@@ -398,8 +397,7 @@ fn run_tui() -> io::Result<TuiResult> {
                         if orig < commands.len() {
                             commands[orig] = new_text.clone();
                             let _ = save_commands(&commands);
-                            status =
-                                Some((format!("updated: {}", new_text), Color::Green));
+                            status = Some((format!("updated: {}", new_text), Color::Green));
                         }
                         mode = InputMode::Normal;
                         query.clear();
@@ -412,15 +410,12 @@ fn run_tui() -> io::Result<TuiResult> {
                         let to_save = cmd.to_string();
                         match push_command(&mut commands, &to_save) {
                             Ok(_) => {
-                                status =
-                                    Some((format!("saved: {}", to_save), Color::Green));
+                                status = Some((format!("saved: {}", to_save), Color::Green));
                                 query.clear();
                                 cursor = 0;
                                 selected = 0;
                             }
-                            Err(e) => {
-                                status = Some((format!("save failed: {}", e), Color::Red))
-                            }
+                            Err(e) => status = Some((format!("save failed: {}", e), Color::Red)),
                         }
                     }
                     NormalParse::AddEmpty => {
@@ -461,9 +456,7 @@ fn run_tui() -> io::Result<TuiResult> {
             }
 
             (KeyCode::Up, _) | (KeyCode::Char('p'), KeyModifiers::CONTROL) => {
-                if selected > 0 {
-                    selected -= 1;
-                }
+                selected = selected.saturating_sub(1);
             }
             (KeyCode::Down, _) | (KeyCode::Char('n'), KeyModifiers::CONTROL) => {
                 if selected + 1 < matches.len() {
@@ -513,7 +506,7 @@ fn run_tui() -> io::Result<TuiResult> {
                 let mut s = cursor;
                 while s > 0 {
                     let p = prev_char_boundary(&query, s);
-                    if query[p..s].chars().next() == Some(' ') {
+                    if query[p..s].starts_with(char::is_whitespace) {
                         s = p;
                     } else {
                         break;
@@ -521,7 +514,7 @@ fn run_tui() -> io::Result<TuiResult> {
                 }
                 while s > 0 {
                     let p = prev_char_boundary(&query, s);
-                    if query[p..s].chars().next() == Some(' ') {
+                    if query[p..s].starts_with(char::is_whitespace) {
                         break;
                     } else {
                         s = p;
@@ -563,5 +556,51 @@ fn main() {
             eprintln!("rast: {}", e);
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_command_comment_keeps_command_and_tag() {
+        assert_eq!(
+            split_command_comment("docker compose up -d # start stack"),
+            ("docker compose up -d", Some("# start stack"))
+        );
+        assert_eq!(
+            split_command_comment("echo foo#bar"),
+            ("echo foo#bar", None)
+        );
+        assert_eq!(
+            split_command_comment("# only metadata"),
+            ("", Some("# only metadata"))
+        );
+    }
+
+    #[test]
+    fn fuzzy_score_requires_all_tokens_case_insensitively() {
+        assert!(fuzzy_score("docker api", "docker compose logs -f api # logs").is_some());
+        assert!(fuzzy_score("DOCKER", "docker compose up").is_some());
+        assert!(fuzzy_score("missing", "docker compose up").is_none());
+    }
+
+    #[test]
+    fn filter_empty_query_prefers_recent_commands() {
+        let commands = vec![
+            "first".to_string(),
+            "second".to_string(),
+            "third".to_string(),
+        ];
+        assert_eq!(filter_commands(&commands, ""), vec![2, 1, 0]);
+    }
+
+    #[test]
+    fn char_boundaries_handle_multibyte_text() {
+        let text = "aλ🚀";
+        let after_lambda = next_char_boundary(text, 1);
+        assert_eq!(&text[1..after_lambda], "λ");
+        assert_eq!(prev_char_boundary(text, text.len()), after_lambda);
     }
 }

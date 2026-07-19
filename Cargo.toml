@@ -2,6 +2,12 @@
 name = "rast"
 version = "0.1.0"
 edition = "2024"
+description = "A tiny Rust TUI launcher for saving, fuzzy-finding, and injecting project-local shell commands."
+license = "MIT"
+repository = "https://github.com/mukh4w/rast-tui"
+readme = "README.md"
+keywords = ["tui", "cli", "commands", "ratatui", "launcher"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 ratatui = "0.29"

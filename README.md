@@ -1,8 +1,32 @@
-# rast
+<div align="center">
 
-A small Rust TUI launcher for your frequently-used shell commands. Think `fzf`, but focused on one job: **find a saved command by a fragment of its name and drop it into your shell prompt** so you can edit and run it yourself.
+# ⚡ rast
 
-```
+### A tiny Rust TUI command launcher for your project-local workflows
+
+Save your everyday shell commands, fuzzy-find them in a clean terminal UI, and drop the selected command back into your prompt for review before running it.
+
+[![Rust](https://img.shields.io/badge/Rust-2024-f74c00?style=for-the-badge&logo=rust&logoColor=white)](https://www.rust-lang.org/)
+[![Ratatui](https://img.shields.io/badge/Built%20with-Ratatui-00b4d8?style=for-the-badge)](https://ratatui.rs/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+[![Crates ready](https://img.shields.io/badge/CLI-rast-blueviolet?style=for-the-badge&logo=gnubash&logoColor=white)](Cargo.toml)
+
+</div>
+
+---
+
+## ✨ Why rast?
+
+`rast` is for commands you run all the time but still want to inspect before execution:
+
+- `docker compose up -d # start stack`
+- `cargo test --all-targets # full test suite`
+- `kubectl logs -f deploy/api # api logs`
+- `npm run dev # frontend`
+
+Unlike generic fuzzy finders, `rast` is focused on one job: **save commands per project, find them fast, and inject the selected command into your shell prompt instead of executing it blindly.**
+
+```text
 ┌ search ─────────────────────────────────────────┐
 │ ❯ ping google                                   │
 └─────────────────────────────────────────────────┘
@@ -13,45 +37,79 @@ A small Rust TUI launcher for your frequently-used shell commands. Think `fzf`, 
 enter pick · /new add (# tag) · ^e edit · ^d del · esc quit
 ```
 
-## Features
+---
 
-- **Per-directory storage.** Commands live in `./.rast` — the file in the directory you launched from. Each project gets its own set.
-- **Searchable `#` tags.** Save `/new docker compose up -d # start stack` — you can later find it by typing `start`. The `# tag` portion is stripped before the command is handed back to your shell.
-- **Inline edit:** `^e` loads the highlighted command into the input; tweak it and press `Enter` to overwrite.
-- **No direct execution.** The picked command is dropped into your shell's prompt buffer via `print -z` (zsh) so you review/edit before pressing Enter yourself.
-- **Single ~700 KB binary**, no runtime.
+## 🚀 Features
 
-## Install
+| Feature | Details |
+|---|---|
+| 📁 **Project-local storage** | Commands live in `./.rast`, so every directory can have its own workflow list. |
+| 🔎 **Fast fuzzy search** | Space-separated, case-insensitive tokens. Every token must match. |
+| 🏷️ **Searchable tags** | Add notes after `#`. Tags are searchable but stripped before shell injection. |
+| ✍️ **Inline editing** | Press `Ctrl+E`, tweak the selected command, and save it back. |
+| 🛡️ **No surprise execution** | `rast` injects into your shell prompt. You decide when to press Enter. |
+| 🐚 **zsh and bash support** | zsh uses `print -z`; bash uses a Readline widget. |
+| 🦀 **Small native binary** | Rust, Ratatui, Crossterm. No runtime required. |
 
-### One-shot
+---
+
+## 📦 Installation
+
+### One-shot installer
 
 ```bash
 git clone https://github.com/mukh4w/rast-tui.git
 cd rast-tui
 ./install.sh
-source ~/.zshrc
 ```
 
-The installer:
-1. runs `cargo build --release`
-2. installs the binary to `~/.local/bin/rast`
-3. appends the right wrapper to your shell rc (zsh and/or bash) — skipped if already present
+Then reload your shell config:
 
-After installing:
+```bash
+# zsh
+source ~/.zshrc
 
-- **zsh** — `source ~/.zshrc`, then just run `rast`. The picked command lands in the next prompt via `print -z`.
-- **bash** — `source ~/.bashrc`, then press `Ctrl+G`. The widget calls `rast` and sets `READLINE_LINE` so the picked command appears at the cursor.
+# bash
+source ~/.bashrc
+```
 
-### Manual
+The installer will:
+
+1. build `rast` in release mode;
+2. install the binary to `~/.local/bin/rast` by default;
+3. add a zsh wrapper and/or bash widget when matching rc files exist;
+4. skip duplicate wrapper installation if it already exists.
+
+> [!TIP]
+> You can customize the installation prefix:
+>
+> ```bash
+> PREFIX="$HOME/.cargo" ./install.sh
+> ```
+
+### Manual install
 
 ```bash
 cargo build --release
-install -m755 target/release/rast ~/.local/bin/rast
+install -Dm755 target/release/rast ~/.local/bin/rast
 ```
 
-For zsh, add to `~/.zshrc`:
+Make sure `~/.local/bin` is on your `PATH`:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+---
+
+## 🐚 Shell setup
+
+### zsh
+
+Add this to `~/.zshrc`:
 
 ```zsh
+# rast: TUI fuzzy command picker
 rast() {
   local cmd
   cmd="$(command rast)" || return
@@ -59,9 +117,20 @@ rast() {
 }
 ```
 
-For bash, add to `~/.bashrc`:
+Usage:
 
 ```bash
+rast
+```
+
+The selected command appears in your next prompt.
+
+### bash
+
+Add this to `~/.bashrc`:
+
+```bash
+# rast: TUI fuzzy command picker
 _rast_widget() {
   local cmd
   cmd="$(command rast </dev/tty)" || return
@@ -73,76 +142,163 @@ _rast_widget() {
 bind -x '"\C-g": _rast_widget'
 ```
 
-Re-source the rc file.
+Usage:
 
-## Usage
+```text
+Ctrl+G
+```
 
-Launch `rast` in any directory; the TUI opens.
+The selected command appears at the active prompt.
 
-| Action | How |
+---
+
+## ⚙️ Usage
+
+Launch `rast` inside any project directory:
+
+```bash
+rast
+```
+
+### Command actions
+
+| Action | Key / input |
 |---|---|
-| Search | just type — space-separated tokens, case-insensitive, all must match |
-| Add a command | `/new <command>` then `Enter` |
-| Add with tags | `/new <command> # <tags>` |
-| Pick | `Enter` — command lands in your shell prompt for review |
-| Edit selected | `^e` to load, change it, `Enter` to save |
-| Delete selected | `^d` |
-| Quit | `Esc` or `^c` |
+| Search commands | Type normally |
+| Add command | `/new <command>` |
+| Add command with tag | `/new <command> # <tag>` |
+| Pick selected command | `Enter` |
+| Edit selected command | `Ctrl+E` |
+| Delete selected command | `Ctrl+D` |
+| Quit | `Esc` or `Ctrl+C` |
 
-### List navigation
+### Navigation
 
-| Key | Action |
+| Action | Key |
 |---|---|
-| `↑` / `^p` | up |
-| `↓` / `^n` | down |
+| Move up | `↑` or `Ctrl+P` |
+| Move down | `↓` or `Ctrl+N` |
 
-### Input editing (readline-style)
+### Input editing
 
-| Key | Action |
+| Action | Key |
 |---|---|
-| `←` / `^b` | cursor left |
-| `→` / `^f` | cursor right |
-| `Home` / `^a` | start |
-| `End` | end |
-| `Backspace` | delete char left |
-| `Delete` | delete char right |
-| `^w` | delete word left |
-| `^u` | clear input |
-| `^k` | kill to end of line |
+| Cursor left | `←` or `Ctrl+B` |
+| Cursor right | `→` or `Ctrl+F` |
+| Start of input | `Home` or `Ctrl+A` |
+| End of input | `End` |
+| Delete left | `Backspace` |
+| Delete right | `Delete` |
+| Delete word left | `Ctrl+W` |
+| Clear input | `Ctrl+U` |
+| Kill to end | `Ctrl+K` |
 
-## Example session
+---
+
+## 🧪 Example workflow
 
 ```text
 $ cd ~/myproject
 $ rast
   > /new docker compose up -d # start stack
   > /new docker compose logs -f api # api logs
-  > /new docker compose down # stop
+  > /new cargo test --all-targets # tests
   esc
 
-$ rast            # reopen — same set is available
+$ rast
   > start
   ▶ docker compose up -d   # start stack
   enter
-$ docker compose up -d█    ← already in the prompt, you press Enter yourself
+
+$ docker compose up -d█
 ```
 
-`cd ~/other-project && rast` shows a different (empty) set because each directory has its own `./.rast`.
+The command is placed in your prompt. You can edit it, review it, and then press Enter yourself.
 
-## How it works
+Move to another directory and you get a separate command list:
 
-- The TUI renders directly to `/dev/tty`, so `stdout` stays clean.
-- When you pick a command, the binary prints it to `stdout` (without the `# tag`).
-- The shell wrapper captures that output with `$(...)`:
-  - **zsh** uses the built-in `print -z` to push the string into the next prompt's editor buffer.
-  - **bash** uses a `bind -x` widget that sets `READLINE_LINE` directly on the active prompt.
-- Direct shell injection (`TIOCSTI`) requires `CAP_SYS_ADMIN` on modern Linux kernels, so these shell-native paths are used instead — robust and no hacks.
+```bash
+cd ~/other-project
+rast
+```
 
-## Dependencies
+---
 
-- Rust 1.88+ (uses let-chains)
-- `ratatui` 0.29, `crossterm` 0.28
+## 🧠 How it works
 
-## License
+```mermaid
+flowchart LR
+    A[Open rast in a project] --> B[Read ./.rast]
+    B --> C[Render TUI on /dev/tty]
+    C --> D[Search, add, edit, delete]
+    D --> E[Pick command]
+    E --> F[Strip searchable # tag]
+    F --> G[Print clean command to stdout]
+    G --> H[Shell wrapper injects into prompt]
+```
 
-MIT — see [LICENSE](LICENSE).
+Implementation notes:
+
+- The UI writes directly to `/dev/tty`, keeping `stdout` clean.
+- A picked command is printed to `stdout` only after selection.
+- zsh captures it and uses `print -z`.
+- bash captures it inside a `bind -x` widget and sets `READLINE_LINE`.
+- No `TIOCSTI` hacks or unsafe prompt injection are required.
+
+---
+
+## 🧰 Requirements
+
+- Rust **1.88+**
+- A Unix-like shell environment
+- zsh or bash for prompt injection wrappers
+
+Runtime dependencies are bundled into the native binary by Cargo.
+
+---
+
+## 🗺️ Roadmap
+
+- [ ] Import commands from shell history
+- [ ] Optional global command store
+- [ ] Export/import command packs
+- [ ] Configurable storage filename
+- [ ] More shell integrations
+- [ ] Demo GIF or screenshots in `assets/`
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome.
+
+Good first improvements:
+
+- add screenshots or a GIF demo;
+- improve shell integration docs;
+- add more tests for input editing;
+- package for Cargo, AUR, Homebrew, or Nix;
+- suggest UX improvements for the TUI.
+
+Suggested local checks before opening a PR:
+
+```bash
+cargo fmt --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features
+cargo build --release
+```
+
+---
+
+## 📄 License
+
+MIT License. See [LICENSE](LICENSE).
+
+---
+
+<div align="center">
+
+**If `rast` saves you a few keystrokes, consider starring the repo ⭐**
+
+</div>
