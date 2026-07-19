@@ -169,8 +169,25 @@ fn run_tui() -> io::Result<TuiResult> {
     // Backend writes (frames) go to /dev/tty. We keep a second tty handle for
     // setup/teardown sequences so stdout stays untouched — `$(rast)` captures
     // only the chosen command we explicitly println at the end.
-    let tty = OpenOptions::new().read(true).write(true).open("/dev/tty")?;
-    let mut setup = OpenOptions::new().write(true).open("/dev/tty")?;
+    let tty = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")
+        .map_err(|e| {
+            io::Error::new(
+                e.kind(),
+                "interactive terminal required: could not open /dev/tty",
+            )
+        })?;
+    let mut setup = OpenOptions::new()
+        .write(true)
+        .open("/dev/tty")
+        .map_err(|e| {
+            io::Error::new(
+                e.kind(),
+                "interactive terminal required: could not open /dev/tty",
+            )
+        })?;
 
     enable_raw_mode()?;
     if let Err(e) = execute!(setup, EnterAlternateScreen) {
