@@ -1,4 +1,5 @@
 use std::cmp::Reverse;
+use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -18,7 +19,15 @@ use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 const STORE_FILE: &str = ".rast";
 
 fn data_file() -> PathBuf {
-    PathBuf::from(STORE_FILE)
+    let local = PathBuf::from(STORE_FILE);
+    if local.exists() {
+        return local;
+    }
+    // Fall back to ~/.rast if no local .rast file
+    if let Some(home) = env::var_os("HOME") {
+        return PathBuf::from(home).join(STORE_FILE);
+    }
+    local
 }
 
 fn load_commands() -> Vec<String> {
@@ -255,6 +264,19 @@ fn run_tui() -> io::Result<TuiResult> {
                 },
             };
 
+            // Visible terminal cursor inside the input box.
+            let prompt_cells: u16 = 2;
+            let chars_before = query_view[..cursor_view].chars().count() as u16;
+            let inner_w = chunks[0].width.saturating_sub(2);
+            let text_x = prompt_cells + chars_before;
+
+            // Horizontal scroll: keep cursor visible when text exceeds input width
+            let scroll_offset = if inner_w > 0 && text_x >= inner_w {
+                text_x - inner_w + 1
+            } else {
+                0
+            };
+
             let input = Paragraph::new(Line::from(vec![
                 Span::styled(
                     prompt_sym,
@@ -264,6 +286,7 @@ fn run_tui() -> io::Result<TuiResult> {
                 ),
                 Span::raw(query_view.as_str()),
             ]))
+            .scroll((0, scroll_offset))
             .block(
                 Block::default()
                     .borders(Borders::ALL)
@@ -277,11 +300,7 @@ fn run_tui() -> io::Result<TuiResult> {
             );
             f.render_widget(input, chunks[0]);
 
-            // Visible terminal cursor inside the input box.
-            let prompt_cells: u16 = 2;
-            let chars_before = query_view[..cursor_view].chars().count() as u16;
-            let inner_w = chunks[0].width.saturating_sub(2);
-            let cx = chunks[0].x + 1 + (prompt_cells + chars_before).min(inner_w.saturating_sub(1));
+            let cx = chunks[0].x + 1 + (text_x - scroll_offset);
             let cy = chunks[0].y + 1;
             f.set_cursor_position((cx, cy));
 
