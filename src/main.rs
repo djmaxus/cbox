@@ -1,5 +1,5 @@
 use std::fs::OpenOptions;
-use std::io;
+use std::io::{self, IsTerminal};
 use std::env;
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -624,13 +624,18 @@ fn run_tui() -> io::Result<TuiResult> {
 }
 
 fn print_init_script(shell: &str) {
+    // Determine the path to the current executable to avoid PATH mismatches during testing
+    let exe_path = env::current_exe()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| "cbox".to_string());
+        
     match shell {
         "bash" => {
-            println!("{}", r#"
+            println!("{}", format!(r#"
 # cbox bash integration
-_cbox_widget() {
+_cbox_widget() {{
   local out ret
-  out="$(command cbox </dev/tty)"
+  out="$("{exe_path}" </dev/tty)"
   ret=$?
   if [ $ret -eq 1 ] || [ -z "$out" ]; then
     return
@@ -638,23 +643,23 @@ _cbox_widget() {
 
   if [ $ret -eq 2 ]; then
     READLINE_LINE="$out"
-    READLINE_POINT=${#READLINE_LINE}
+    READLINE_POINT=${{#READLINE_LINE}}
     bind '"\e[0n": accept-line'
     printf '\e[5n'
   else
     READLINE_LINE="$out"
-    READLINE_POINT=${#READLINE_LINE}
+    READLINE_POINT=${{#READLINE_LINE}}
   fi
-}
+}}
 bind -x '"\C-g": _cbox_widget' 2>/dev/null || true
 
-cbox() {
+cbox() {{
   if [ $# -gt 0 ]; then
-    command cbox "$@"
+    command "{exe_path}" "$@"
     return
   fi
   local out ret
-  out="$(command cbox </dev/tty)"
+  out="$("{exe_path}" </dev/tty)"
   ret=$?
   if [ $ret -eq 1 ] || [ -z "$out" ]; then
     return
@@ -667,15 +672,15 @@ cbox() {
     bind '"\e[0n": "'"$out"'"'
     printf '\e[5n'
   fi
-}
-"#);
+}}
+"#));
         }
         "zsh" => {
-            println!("{}", r#"
+            println!("{}", format!(r#"
 # cbox zsh integration
-cbox_widget() {
+cbox_widget() {{
   local out ret
-  out="$(command cbox </dev/tty)"
+  out="$("{exe_path}" </dev/tty)"
   ret=$?
   if [ $ret -eq 1 ] || [ -z "$out" ]; then
     zle && zle redisplay
@@ -683,22 +688,22 @@ cbox_widget() {
   fi
 
   BUFFER="$out"
-  CURSOR=${#BUFFER}
+  CURSOR=${{#BUFFER}}
   if [ $ret -eq 2 ]; then
     zle accept-line
   fi
   zle && zle redisplay
-}
+}}
 zle -N cbox_widget
 bindkey '^g' cbox_widget
 
-cbox() {
+cbox() {{
   if [ $# -gt 0 ]; then
-    command cbox "$@"
+    command "{exe_path}" "$@"
     return
   fi
   local out ret
-  out="$(command cbox </dev/tty)"
+  out="$("{exe_path}" </dev/tty)"
   ret=$?
   if [ $ret -eq 1 ] || [ -z "$out" ]; then
     return
@@ -709,14 +714,14 @@ cbox() {
   else
     print -z -- "$out"
   fi
-}
-"#);
+}}
+"#));
         }
         "fish" => {
-            println!("{}", r#"
+            println!("{}", format!(r#"
 # cbox fish integration
 function _cbox_widget
-    set -l out (command cbox </dev/tty)
+    set -l out ("{exe_path}" </dev/tty)
     set -l ret $status
     if test $ret -eq 1; or test -z "$out"
         commandline -f repaint
@@ -734,10 +739,10 @@ bind \cg _cbox_widget
 
 function cbox
     if count $argv > /dev/null
-        command cbox $argv
+        command "{exe_path}" $argv
         return
     end
-    set -l out (command cbox </dev/tty)
+    set -l out ("{exe_path}" </dev/tty)
     set -l ret $status
     if test $ret -eq 1; or test -z "$out"
         return
@@ -748,30 +753,30 @@ function cbox
         echo $out
     end
 end
-"#);
+"#));
         }
         "nushell" | "nu" => {
-            println!("{}", r#"
+            println!("{}", format!(r#"
 # cbox nushell integration
 # $env.config = ($env.config | upsert keybindings (
-#     $env.config.keybindings | append {
+#     $env.config.keybindings | append {{
 #         name: cbox_widget
 #         modifier: control
 #         keycode: char_g
 #         mode: [emacs, vi_normal, vi_insert]
-#         event: {
+#         event: {{
 #             send: executehostcommand
 #             cmd: "
-#                 let out = (^cbox < /dev/tty | complete);
-#                 if $out.exit_code == 1 { return };
+#                 let out = (^{exe_path} < /dev/tty | complete);
+#                 if $out.exit_code == 1 {{ return }};
 #                 let cmd_content = $out.stdout | str trim;
-#                 if ($cmd_content | is-empty) { return };
+#                 if ($cmd_content | is-empty) {{ return }};
 #                 commandline edit --replace $cmd_content;
 #             "
-#         }
-#     }
+#         }}
+#     }}
 # ))
-"#);
+"#));
         }
         _ => {
             eprintln!("cbox: unsupported shell '{}'", shell);
@@ -789,11 +794,25 @@ fn main() {
     match run_tui() {
         Ok(TuiResult::Pick { entry, execute }) => {
             let (cmd_part, _) = split_command_comment(&entry.cmd);
-            println!("{}", cmd_part);
-            if execute {
-                std::process::exit(2);
-            } else {
+            if io::stdout().is_terminal() {
+                // If running the binary directly (not via shell capture)
+                if execute {
+                    let mut iter = cmd_part.split_whitespace();
+                    if let Some(bin) = iter.next() {
+                        let args: Vec<&str> = iter.collect();
+                        let _ = std::process::Command::new(bin).args(args).status();
+                    }
+                } else {
+                    println!("{}", cmd_part);
+                }
                 std::process::exit(0);
+            } else {
+                print!("{}", cmd_part);
+                if execute {
+                    std::process::exit(2);
+                } else {
+                    std::process::exit(0);
+                }
             }
         }
         Ok(TuiResult::Cancel) => {
