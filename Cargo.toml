@@ -18,3 +18,7 @@ dirs = "7.0.0"
 lto = true
 codegen-units = 1
 strip = true
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.gz"
+bin-dir = "{ name }"

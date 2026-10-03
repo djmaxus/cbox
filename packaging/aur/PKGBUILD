@@ -1,0 +1,17 @@
+# Maintainer: mukh4w
+pkgname=cbox-bin
+pkgver=0.1.0
+pkgrel=1
+pkgdesc="A tiny Rust TUI launcher for saving, fuzzy-finding, and injecting project-local shell commands"
+arch=('x86_64' 'aarch64')
+url="https://github.com/mukh4w/cbox"
+license=('MIT')
+provides=('cbox')
+conflicts=('cbox')
+
+source_x86_64=("https://github.com/mukh4w/cbox/releases/download/v${pkgver}/cbox-x86_64-unknown-linux-musl.tar.gz")
+source_aarch64=("https://github.com/mukh4w/cbox/releases/download/v${pkgver}/cbox-aarch64-unknown-linux-musl.tar.gz")
+
+package() {
+    install -Dm755 "${srcdir}/cbox" "${pkgdir}/usr/bin/cbox"
+}
