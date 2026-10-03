@@ -1,6 +1,6 @@
 [package]
 name = "cbox-tui"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "A tiny Rust TUI launcher for saving, fuzzy-finding, and injecting project-local shell commands. (Command Box)"
 license = "MIT"
