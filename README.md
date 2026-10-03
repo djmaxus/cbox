@@ -1,14 +1,26 @@
-# cbox
+<div align="center">
+  <h1>📦 cbox (Command Box)</h1>
+  <p>A tiny, lightning-fast Rust TUI for saving, fuzzy-finding, and safely injecting project-local shell commands.</p>
 
-<!-- TODO: Add vhs/asciinema GIF here showing 1. Launch 2. Search 3. Prompt injection 4. Typing flag and Enter -->
+  <a href="https://crates.io/crates/cbox-tui"><img src="https://img.shields.io/crates/v/cbox-tui.svg" alt="Crates.io" /></a>
+  <a href="https://github.com/mukh4w/cbox/actions/workflows/release.yml"><img src="https://github.com/mukh4w/cbox/actions/workflows/release.yml/badge.svg" alt="CI Status" /></a>
+  <a href="https://crates.io/crates/cbox-tui"><img src="https://img.shields.io/crates/d/cbox-tui.svg" alt="Downloads" /></a>
+  <a href="https://github.com/mukh4w/cbox/blob/main/LICENSE"><img src="https://img.shields.io/crates/l/cbox-tui.svg" alt="License" /></a>
+</div>
 
-`cbox` (Command Box) is a tiny Rust TUI launcher for saving, fuzzy-finding, and injecting project-local shell commands.
+<br />
 
-## How is this different from fzf / zoxide?
-**fzf** searches files and history. **zoxide** navigates directories. 
-**`cbox`** saves structured, project-specific workflows and safely injects them into your prompt without executing them blindly.
+<div align="center">
+  <!-- Replace this with a real GIF of cbox in action -->
+  <img src="https://raw.githubusercontent.com/mukh4w/cbox/main/demo.gif" alt="cbox demo" width="700" />
+</div>
 
-## Installation
+## 💡 How is this different from fzf / zoxide?
+- **fzf** searches files and terminal history.
+- **zoxide** navigates directories. 
+- **`cbox`** saves structured, project-specific workflows and **safely injects** them into your prompt without executing them blindly.
+
+## 🚀 Installation
 
 ### 1. Pre-built Binaries (Recommended)
 You can install `cbox` using our one-liner install script which fetches the correct binary for your OS and architecture:
@@ -19,15 +31,15 @@ curl -sSfL https://raw.githubusercontent.com/mukh4w/cbox/main/install.sh | sh
 ### 2. cargo binstall
 If you have `cargo binstall` installed:
 ```bash
-cargo binstall cbox
+cargo binstall cbox-tui
 ```
 
 ### 3. Build from source
 ```bash
-cargo install --git https://github.com/mukh4w/cbox
+cargo install cbox-tui
 ```
 
-## Shell Integration
+## 🔌 Shell Integration
 
 To make `cbox` inject commands directly into your shell prompt and map it to `Ctrl+G`, add the corresponding line to your shell configuration file:
 
@@ -46,19 +58,20 @@ eval "$(cbox init zsh)"
 cbox init fish | source
 ```
 
-**Nushell** (`config.nu`):
-Run `cbox init nu` to see the manual instructions to add to your Nu config.
+*(Restart your terminal or run `source ~/.zshrc` etc. after adding)*
 
-## Usage
+## 🎮 Usage
 
-- **Save local command**: Type `/new docker compose up -d`
-- **Save global command**: Type `/newg ping 8.8.8.8`
-- **Pick**: Press `Enter` to inject the command into your prompt.
-- **Fast Execute**: Press `Ctrl+x` to run immediately without injecting.
-- **Placeholders**: You can use `{...}` or `<...>` in your commands (e.g. `git commit -m "{message}"`). `cbox` will automatically place your cursor at the placeholder upon injection!
-- **Edit/Delete**: Press `Ctrl+e` to edit, `Ctrl+d` to delete.
+Once integrated, press **`Ctrl+G`** to open `cbox`.
 
-## Tips & Tricks
+- **Save local command**: Type `/new docker compose up -d` (saved to `./.cbox`)
+- **Save global command**: Type `/newg ping 8.8.8.8` (saved to `~/.config/cbox/commands`)
+- **Fuzzy Search**: Just start typing!
+- **Inject (Default)**: Press `Enter` to inject the command into your prompt safely.
+- **Fast Execute**: Press `Alt+Enter` to run the command immediately without injecting.
+- **Edit/Delete**: Press `Ctrl+e` to edit the selected command, `Ctrl+d` to delete it.
+
+## 🛠️ Tips & Tricks
 
 ### Floating Tmux Popup
 If you use `tmux`, you can launch `cbox` in a beautiful floating popup window rather than occupying your terminal.
@@ -66,9 +79,9 @@ Add this to your `~/.tmux.conf`:
 ```tmux
 bind C-g popup -E -w 80% -h 80% "cbox"
 ```
-*(Note: Prompt injection requires running `cbox` directly in your shell, so the tmux popup is best suited for when you use `Ctrl+x` execution).*
+*(Note: Prompt injection requires running `cbox` directly in your shell via the integration. The tmux popup is best suited for when you exclusively use `Alt+Enter` execution).*
 
-## Packages (Maintainers)
+## 📦 Packages (Maintainers)
 
 ### Homebrew (macOS / Linux)
 We plan to provide a Homebrew tap. A template formula is available in the repository.
@@ -76,5 +89,5 @@ We plan to provide a Homebrew tap. A template formula is available in the reposi
 ### Arch User Repository (AUR)
 `cbox` will be available in the AUR as `cbox-bin` and `cbox-git`.
 
-## License
-MIT
+## 📜 License
+MIT License.
