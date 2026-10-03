@@ -1,5 +1,6 @@
 use std::fs::OpenOptions;
 use std::io::{self, Write};
+use std::env;
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::execute;
@@ -54,31 +55,26 @@ fn fuzzy_score(query: &str, item: &str) -> Option<i64> {
 }
 
 fn filter_commands(entries: &[CommandEntry], query: &str) -> Vec<usize> {
-    let mut scored: Vec<(i64, usize, usize, usize)> = entries
+    let mut scored: Vec<(i64, usize, usize)> = entries
         .iter()
         .enumerate()
         .filter_map(|(i, c)| {
             fuzzy_score(query, &c.cmd).map(|s| {
-                // tuple for sorting: (score, usage_count, is_local, original_index)
+                // tuple for sorting: (score, is_local, original_index)
                 // is_local = 1 if local, 0 if global. Prioritize local commands.
-                (s, c.count, if c.is_global { 0 } else { 1 }, i)
+                (s, if c.is_global { 0 } else { 1 }, i)
             })
         })
         .collect();
 
     if query.is_empty() {
-        // Sort by usage count first, then local/global, then reverse index
-        scored.sort_by(|a, b| b.1.cmp(&a.1).then(b.2.cmp(&a.2)).then(b.3.cmp(&a.3)));
+        // Sort by local/global, then reverse index
+        scored.sort_by(|a, b| b.1.cmp(&a.1).then(b.2.cmp(&a.2)));
     } else {
-        // Sort by fuzzy score, then usage count, then local/global, then reverse index
-        scored.sort_by(|a, b| {
-            b.0.cmp(&a.0)
-                .then(b.1.cmp(&a.1))
-                .then(b.2.cmp(&a.2))
-                .then(b.3.cmp(&a.3))
-        });
+        // Sort by fuzzy score, then local/global, then reverse index
+        scored.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)).then(b.2.cmp(&a.2)));
     }
-    scored.into_iter().map(|(_, _, _, i)| i).collect()
+    scored.into_iter().map(|(_, _, i)| i).collect()
 }
 
 #[derive(Clone, Copy)]
@@ -117,7 +113,7 @@ fn parse_normal(q: &str) -> NormalParse<'_> {
 }
 
 enum TuiResult {
-    Pick(CommandEntry),
+    Pick { entry: CommandEntry, execute: bool },
     Cancel,
 }
 
@@ -215,6 +211,7 @@ fn run_tui() -> io::Result<TuiResult> {
                 .constraints([
                     Constraint::Length(3),
                     Constraint::Min(1),
+                    Constraint::Length(5), // Preview pane
                     Constraint::Length(1),
                 ])
                 .split(area);
@@ -381,6 +378,68 @@ fn run_tui() -> io::Result<TuiResult> {
             );
             f.render_widget(list, chunks[1]);
 
+            // Render Preview Pane
+            let preview_content = if let Some(&idx) = matches.get(selected) {
+                let entry = &entries[idx];
+                let tag = if entry.is_global { "[G]" } else { "[L]" };
+                let tag_color = if entry.is_global { Color::DarkGray } else { Color::Gray };
+                
+                let mut spans = vec![
+                    Span::styled(tag, Style::default().fg(tag_color).add_modifier(Modifier::BOLD)),
+                    Span::raw(" "),
+                ];
+                
+                // Highlight placeholders in preview too
+                let (cmd_part, comment_part) = split_command_comment(&entry.cmd);
+                let mut current_idx = 0;
+                let cmd_str = cmd_part;
+                while let Some(start) = cmd_str[current_idx..].find(['{', '<']) {
+                    let absolute_start = current_idx + start;
+                    spans.push(Span::styled(&cmd_str[current_idx..absolute_start], Style::default().fg(Color::White)));
+                    
+                    let closing = if cmd_str[absolute_start..].starts_with('{') { '}' } else { '>' };
+                    if let Some(end) = cmd_str[absolute_start..].find(closing) {
+                        let absolute_end = absolute_start + end + 1;
+                        spans.push(Span::styled(
+                            &cmd_str[absolute_start..absolute_end],
+                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                        ));
+                        current_idx = absolute_end;
+                    } else {
+                        spans.push(Span::styled(&cmd_str[absolute_start..], Style::default().fg(Color::White)));
+                        current_idx = cmd_str.len();
+                        break;
+                    }
+                }
+                if current_idx < cmd_str.len() {
+                    spans.push(Span::styled(&cmd_str[current_idx..], Style::default().fg(Color::White)));
+                }
+
+                if let Some(c) = comment_part {
+                    spans.push(Span::raw("  "));
+                    spans.push(Span::styled(c.to_string(), Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)));
+                }
+                
+                vec![Line::from(spans)]
+            } else {
+                vec![Line::from(Span::styled("No command selected", Style::default().fg(Color::DarkGray)))]
+            };
+
+            let preview = Paragraph::new(preview_content)
+                .wrap(ratatui::widgets::Wrap { trim: false })
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::DarkGray))
+                        .title(Span::styled(
+                            " Preview ",
+                            Style::default()
+                                .fg(Color::Magenta)
+                                .add_modifier(Modifier::BOLD),
+                        )),
+                );
+            f.render_widget(preview, chunks[2]);
+
             let help_line = if let Some((msg, color)) = &status {
                 Line::from(Span::styled(msg, Style::default().fg(*color)))
             } else {
@@ -393,7 +452,9 @@ fn run_tui() -> io::Result<TuiResult> {
                     ]),
                     InputMode::Normal => Line::from(vec![
                         Span::styled("enter", Style::default().fg(Color::Green)),
-                        Span::raw(" pick  "),
+                        Span::raw(" inject  "),
+                        Span::styled("^x", Style::default().fg(Color::Green)),
+                        Span::raw(" exec  "),
                         Span::styled("/new", Style::default().fg(Color::Green)),
                         Span::raw(" add local  "),
                         Span::styled("/newg", Style::default().fg(Color::Green)),
@@ -408,7 +469,7 @@ fn run_tui() -> io::Result<TuiResult> {
                 }
             };
             let help = Paragraph::new(help_line).style(Style::default().fg(Color::DarkGray));
-            f.render_widget(help, chunks[2]);
+            f.render_widget(help, chunks[3]);
         })?;
 
         status = None;
@@ -439,7 +500,7 @@ fn run_tui() -> io::Result<TuiResult> {
             },
             (KeyCode::Char('c'), KeyModifiers::CONTROL) => break TuiResult::Cancel,
 
-            (KeyCode::Enter, _) => match mode {
+            (KeyCode::Enter, modifiers) => match mode {
                 InputMode::Editing(idx) => {
                     let new_text = query.trim().to_string();
                     if new_text.is_empty() {
@@ -492,12 +553,22 @@ fn run_tui() -> io::Result<TuiResult> {
                     NormalParse::Search(_) => {
                         if let Some(&idx) = matches.get(selected) {
                             let entry = entries[idx].clone();
-                            let _ = store.increment_usage(entry.is_global, entry.original_index);
-                            break TuiResult::Pick(entry);
+                            let execute = modifiers.contains(KeyModifiers::CONTROL);
+                            break TuiResult::Pick { entry, execute };
                         }
                     }
                 },
             },
+
+            (KeyCode::Char('x'), KeyModifiers::CONTROL) => {
+                if matches!(mode, InputMode::Normal)
+                    && matches!(parse_normal(&query), NormalParse::Search(_))
+                    && let Some(&idx) = matches.get(selected)
+                {
+                    let entry = entries[idx].clone();
+                    break TuiResult::Pick { entry, execute: true };
+                }
+            }
 
             (KeyCode::Char('e'), KeyModifiers::CONTROL) => {
                 if matches!(mode, InputMode::Normal)
@@ -616,11 +687,182 @@ fn run_tui() -> io::Result<TuiResult> {
     Ok(result)
 }
 
+fn print_init_script(shell: &str) {
+    match shell {
+        "bash" => {
+            println!("{}", r#"
+# cbox bash integration
+# bind to Ctrl-G
+_cbox_widget() {
+  local out cmd_type cmd_content
+  out="$(command cbox </dev/tty)" || return
+  cmd_type=$(head -n 1 <<< "$out")
+  cmd_content=$(tail -n +2 <<< "$out")
+
+  if [ -z "$cmd_type" ]; then
+    return
+  fi
+
+  if [ "$cmd_type" = "EXECUTE" ]; then
+    READLINE_LINE="$cmd_content"
+    READLINE_POINT=${#READLINE_LINE}
+    # tell readline to accept the line
+    bind '"\e[0n": accept-line'
+    printf '\e[5n'
+  elif [ "$cmd_type" = "INJECT" ]; then
+    READLINE_LINE="$cmd_content"
+    # Placeholder search: {...} or <...>
+    if [[ "$cmd_content" =~ (\{.*\}|\<.*\>) ]]; then
+        # bash regex match sets BASH_REMATCH
+        # BASH_REMATCH[1] is the placeholder
+        # calculate position
+        local prefix="${cmd_content%%${BASH_REMATCH[1]}*}"
+        READLINE_POINT=${#prefix}
+    else
+        READLINE_POINT=${#READLINE_LINE}
+    fi
+  fi
+}
+bind -x '"\C-g": _cbox_widget' 2>/dev/null || true
+"#);
+        }
+        "zsh" => {
+            println!("{}", r#"
+# cbox zsh integration
+# bind to Ctrl-G or use as a function
+cbox_widget() {
+  local out cmd_type cmd_content
+  out="$(command cbox </dev/tty)" || return
+  
+  # split by newline
+  local lines=("${(@f)out}")
+  if [ ${#lines[@]} -lt 2 ]; then
+    zle && zle redisplay
+    return
+  fi
+
+  cmd_type="${lines[1]}"
+  cmd_content="${(j:\n:)lines[2,-1]}"
+
+  if [ "$cmd_type" = "EXECUTE" ]; then
+    BUFFER="$cmd_content"
+    CURSOR=${#BUFFER}
+    zle accept-line
+  elif [ "$cmd_type" = "INJECT" ]; then
+    BUFFER="$cmd_content"
+    # Find placeholder {...} or <...>
+    if [[ "$BUFFER" =~ '(\{[^{}]+\}|\<[^<>]+\>)' ]]; then
+      local match_idx="${mbegin[1]}"
+      # mbegin is 1-indexed, cursor is 0-indexed
+      CURSOR=$((match_idx - 1))
+    else
+      CURSOR=${#BUFFER}
+    fi
+  fi
+  zle && zle redisplay
+}
+zle -N cbox_widget
+bindkey '^g' cbox_widget
+"#);
+        }
+        "fish" => {
+            println!("{}", r#"
+# cbox fish integration
+# bind to Ctrl-G
+function _cbox_widget
+    set -l out (command cbox </dev/tty)
+    if test -z "$out"
+        commandline -f repaint
+        return
+    end
+
+    set -l cmd_type $out[1]
+    set -l cmd_content (string join "\n" $out[2..-1])
+
+    if test "$cmd_type" = "EXECUTE"
+        commandline -r -- $cmd_content
+        commandline -f execute
+    else if test "$cmd_type" = "INJECT"
+        commandline -r -- $cmd_content
+        
+        # Placeholder cursor placement
+        set -l match (string match -r -i -n '(\{[^{}]+\}|\<[^<>]+\>)' $cmd_content)
+        if test -n "$match"
+            set -l match_parts (string split ":" $match)
+            # string split ":" returns offset and length
+            # fish commandline -C takes 0-based offset
+            set -l pos (math $match_parts[1] - 1)
+            commandline -C $pos
+        else
+            commandline -C (string length -- $cmd_content)
+        end
+    end
+    commandline -f repaint
+end
+bind \cg _cbox_widget
+"#);
+        }
+        "nushell" | "nu" => {
+            println!("{}", r#"
+# cbox nushell integration
+# Add this to your config.nu
+# In nushell, we define a custom command 'cbox' that invokes the binary
+# and uses the results. But to modify the prompt and cursor, we use keybindings.
+# Wait, Nu's keybindings take a custom closure.
+# Usage in config.nu:
+# $env.config = ($env.config | upsert keybindings (
+#     $env.config.keybindings | append {
+#         name: cbox_widget
+#         modifier: control
+#         keycode: char_g
+#         mode: [emacs, vi_normal, vi_insert]
+#         event: {
+#             send: executehostcommand
+#             cmd: "
+#                 let out = (^cbox < /dev/tty | lines);
+#                 if ($out | is-empty) { return };
+#                 let cmd_type = ($out | first);
+#                 let cmd_content = ($out | skip 1 | str join '\n');
+#                 if $cmd_type == 'EXECUTE' {
+#                     commandline edit --replace $cmd_content;
+#                     # Note: Nushell currently doesn't have a built-in way to automatically execute
+#                     # the replaced commandline from a keybinding script without a workaround.
+#                 } else {
+#                     commandline edit --replace $cmd_content;
+#                     # Cursor placement
+#                     # Regex match not natively supported in exact index easily in nushell 0.9x without extra plugins
+#                     # We will just append for now
+#                 }
+#             "
+#         }
+#     }
+# ))
+# Note: Full nu integration requires manual config insertion.
+"#);
+        }
+        _ => {
+            eprintln!("cbox: unsupported shell '{}'", shell);
+        }
+    }
+}
+
 fn main() {
+    let args: Vec<String> = env::args().collect();
+    if args.len() >= 3 && args[1] == "init" {
+        print_init_script(&args[2]);
+        return;
+    }
+
     match run_tui() {
-        Ok(TuiResult::Pick(entry)) => {
+        Ok(TuiResult::Pick { entry, execute }) => {
             let (cmd_part, _) = split_command_comment(&entry.cmd);
-            let _ = writeln!(io::stdout(), "{}", cmd_part);
+            if execute {
+                let _ = writeln!(io::stdout(), "EXECUTE");
+                let _ = writeln!(io::stdout(), "{}", cmd_part);
+            } else {
+                let _ = writeln!(io::stdout(), "INJECT");
+                let _ = writeln!(io::stdout(), "{}", cmd_part);
+            }
         }
         Ok(TuiResult::Cancel) => {}
         Err(e) => {
