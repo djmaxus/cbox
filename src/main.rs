@@ -406,7 +406,7 @@ fn run_tui() -> io::Result<TuiResult> {
                     InputMode::Normal => Line::from(vec![
                         Span::styled("enter", Style::default().fg(Color::Green)),
                         Span::raw(" inject  "),
-                        Span::styled("^enter", Style::default().fg(Color::Green)),
+                        Span::styled("shift+enter", Style::default().fg(Color::Green)),
                         Span::raw(" (или alt+enter) exec  "),
                         Span::styled("/new", Style::default().fg(Color::Green)),
                         Span::raw(" add local  "),
@@ -506,7 +506,7 @@ fn run_tui() -> io::Result<TuiResult> {
                     NormalParse::Search(_) => {
                         if let Some(&idx) = matches.get(selected) {
                             let entry = entries[idx].clone();
-                            let execute = modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT);
+                            let execute = modifiers.contains(KeyModifiers::SHIFT) || modifiers.contains(KeyModifiers::ALT);
                             break TuiResult::Pick { entry, execute };
                         }
                     }
@@ -642,7 +642,7 @@ fn print_init_script(shell: &str) {
         
     match shell {
         "bash" => {
-            println!("{}", format!(r#"
+            println!(r#"
 # cbox bash integration
 _cbox_widget() {{
   local out ret
@@ -684,10 +684,10 @@ cbox() {{
     printf '\e[5n'
   fi
 }}
-"#));
+"#);
         }
         "zsh" => {
-            println!("{}", format!(r#"
+            println!(r#"
 # cbox zsh integration
 cbox_widget() {{
   local out ret
@@ -726,10 +726,10 @@ cbox() {{
     print -z -- "$out"
   fi
 }}
-"#));
+"#);
         }
         "fish" => {
-            println!("{}", format!(r#"
+            println!(r#"
 # cbox fish integration
 function _cbox_widget
     set -l out ("{exe_path}" </dev/tty)
@@ -764,10 +764,10 @@ function cbox
         echo $out
     end
 end
-"#));
+"#);
         }
         "nushell" | "nu" => {
-            println!("{}", format!(r#"
+            println!(r#"
 # cbox nushell integration
 # $env.config = ($env.config | upsert keybindings (
 #     $env.config.keybindings | append {{
@@ -787,7 +787,7 @@ end
 #         }}
 #     }}
 # ))
-"#));
+"#);
         }
         _ => {
             eprintln!("cbox: unsupported shell '{}'", shell);
