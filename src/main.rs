@@ -1,5 +1,5 @@
 use std::fs::OpenOptions;
-use std::io::{self, Write};
+use std::io::{self, Write, IsTerminal};
 use std::env;
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -856,12 +856,27 @@ fn main() {
     match run_tui() {
         Ok(TuiResult::Pick { entry, execute }) => {
             let (cmd_part, _) = split_command_comment(&entry.cmd);
-            if execute {
-                let _ = writeln!(io::stdout(), "EXECUTE");
-                let _ = writeln!(io::stdout(), "{}", cmd_part);
+            if io::stdout().is_terminal() {
+                // Run interactively without shell wrapper capture
+                if execute {
+                    // Try to execute directly using sh
+                    let _ = std::process::Command::new("sh")
+                        .arg("-c")
+                        .arg(cmd_part)
+                        .status();
+                } else {
+                    // Just print for copy-pasting since we can't inject
+                    let _ = writeln!(io::stdout(), "{}", cmd_part);
+                }
             } else {
-                let _ = writeln!(io::stdout(), "INJECT");
-                let _ = writeln!(io::stdout(), "{}", cmd_part);
+                // Captured by shell wrapper
+                if execute {
+                    let _ = writeln!(io::stdout(), "EXECUTE");
+                    let _ = writeln!(io::stdout(), "{}", cmd_part);
+                } else {
+                    let _ = writeln!(io::stdout(), "INJECT");
+                    let _ = writeln!(io::stdout(), "{}", cmd_part);
+                }
             }
         }
         Ok(TuiResult::Cancel) => {}
