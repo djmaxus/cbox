@@ -406,8 +406,8 @@ fn run_tui() -> io::Result<TuiResult> {
                     InputMode::Normal => Line::from(vec![
                         Span::styled("enter", Style::default().fg(Color::Green)),
                         Span::raw(" inject  "),
-                        Span::styled("shift+enter", Style::default().fg(Color::Green)),
-                        Span::raw(" (или alt+enter) exec  "),
+                        Span::styled("alt+enter", Style::default().fg(Color::Green)),
+                        Span::raw(" exec  "),
                         Span::styled("/new", Style::default().fg(Color::Green)),
                         Span::raw(" add local  "),
                         Span::styled("/newg", Style::default().fg(Color::Green)),
@@ -506,7 +506,7 @@ fn run_tui() -> io::Result<TuiResult> {
                     NormalParse::Search(_) => {
                         if let Some(&idx) = matches.get(selected) {
                             let entry = entries[idx].clone();
-                            let execute = modifiers.contains(KeyModifiers::SHIFT) || modifiers.contains(KeyModifiers::ALT);
+                            let execute = modifiers.contains(KeyModifiers::ALT);
                             break TuiResult::Pick { entry, execute };
                         }
                     }
