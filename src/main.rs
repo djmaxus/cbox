@@ -1,8 +1,5 @@
-use std::cmp::Reverse;
-use std::env;
-use std::fs::{self, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::{self, Write};
-use std::path::PathBuf;
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::execute;
@@ -16,55 +13,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
 
-const STORE_FILE: &str = ".rast";
-
-fn data_file() -> PathBuf {
-    let local = PathBuf::from(STORE_FILE);
-    if local.exists() {
-        return local;
-    }
-    // Fall back to ~/.rast if no local .rast file
-    if let Some(home) = env::var_os("HOME") {
-        return PathBuf::from(home).join(STORE_FILE);
-    }
-    local
-}
-
-fn load_commands() -> Vec<String> {
-    match fs::read_to_string(data_file()) {
-        Ok(s) => s
-            .lines()
-            .map(|l| l.trim_end_matches('\r').to_string())
-            .filter(|l| !l.trim().is_empty())
-            .collect(),
-        Err(_) => Vec::new(),
-    }
-}
-
-fn save_commands(cmds: &[String]) -> io::Result<()> {
-    let body = if cmds.is_empty() {
-        String::new()
-    } else {
-        let mut s = cmds.join("\n");
-        s.push('\n');
-        s
-    };
-    fs::write(data_file(), body)
-}
-
-fn push_command(cmds: &mut Vec<String>, cmd: &str) -> io::Result<()> {
-    let cmd = cmd.trim();
-    if cmd.is_empty() {
-        return Ok(());
-    }
-    if let Some(pos) = cmds.iter().position(|c| c == cmd) {
-        let existing = cmds.remove(pos);
-        cmds.push(existing);
-    } else {
-        cmds.push(cmd.to_string());
-    }
-    save_commands(cmds)
-}
+mod store;
+use store::{CommandEntry, Store};
 
 /// Split `line` into (command_part, comment_part). The comment part keeps its leading `#`.
 /// A `#` is treated as a comment when preceded by whitespace or at the start of the line.
@@ -83,8 +33,7 @@ fn split_command_comment(line: &str) -> (&str, Option<&str>) {
     (line, None)
 }
 
-/// Score how well `item` matches `query`. The full stored line — including any `#`-comment —
-/// is searched, so tags after `#` are usable patterns.
+/// Score how well `item` matches `query`.
 fn fuzzy_score(query: &str, item: &str) -> Option<i64> {
     if query.is_empty() {
         return Some(0);
@@ -104,41 +53,63 @@ fn fuzzy_score(query: &str, item: &str) -> Option<i64> {
     Some(score)
 }
 
-fn filter_commands(cmds: &[String], query: &str) -> Vec<usize> {
-    let mut scored: Vec<(i64, usize)> = cmds
+fn filter_commands(entries: &[CommandEntry], query: &str) -> Vec<usize> {
+    let mut scored: Vec<(i64, usize, usize, usize)> = entries
         .iter()
         .enumerate()
-        .filter_map(|(i, c)| fuzzy_score(query, c).map(|s| (s, i)))
+        .filter_map(|(i, c)| {
+            fuzzy_score(query, &c.cmd).map(|s| {
+                // tuple for sorting: (score, usage_count, is_local, original_index)
+                // is_local = 1 if local, 0 if global. Prioritize local commands.
+                (s, c.count, if c.is_global { 0 } else { 1 }, i)
+            })
+        })
         .collect();
+
     if query.is_empty() {
-        scored.sort_by_key(|(_, idx)| Reverse(*idx));
+        // Sort by usage count first, then local/global, then reverse index
+        scored.sort_by(|a, b| b.1.cmp(&a.1).then(b.2.cmp(&a.2)).then(b.3.cmp(&a.3)));
     } else {
-        scored.sort_by(|a, b| b.0.cmp(&a.0).then(b.1.cmp(&a.1)));
+        // Sort by fuzzy score, then usage count, then local/global, then reverse index
+        scored.sort_by(|a, b| {
+            b.0.cmp(&a.0)
+                .then(b.1.cmp(&a.1))
+                .then(b.2.cmp(&a.2))
+                .then(b.3.cmp(&a.3))
+        });
     }
-    scored.into_iter().map(|(_, i)| i).collect()
+    scored.into_iter().map(|(_, _, _, i)| i).collect()
 }
 
 #[derive(Clone, Copy)]
 enum InputMode {
     Normal,
-    Editing(usize),
+    Editing(usize), // references the index in the filtered/all list
 }
 
 enum NormalParse<'a> {
     Search(&'a str),
     Add(&'a str),
+    AddGlobal(&'a str),
     AddEmpty,
 }
 
 fn parse_normal(q: &str) -> NormalParse<'_> {
-    if let Some(rest) = q.strip_prefix("/new ") {
+    if let Some(rest) = q.strip_prefix("/newg ") {
+        let r = rest.trim_start();
+        if r.is_empty() {
+            NormalParse::AddEmpty
+        } else {
+            NormalParse::AddGlobal(r)
+        }
+    } else if let Some(rest) = q.strip_prefix("/new ") {
         let r = rest.trim_start();
         if r.is_empty() {
             NormalParse::AddEmpty
         } else {
             NormalParse::Add(r)
         }
-    } else if q == "/new" {
+    } else if q == "/new" || q == "/newg" {
         NormalParse::AddEmpty
     } else {
         NormalParse::Search(q)
@@ -146,7 +117,7 @@ fn parse_normal(q: &str) -> NormalParse<'_> {
 }
 
 enum TuiResult {
-    Pick(String),
+    Pick(CommandEntry),
     Cancel,
 }
 
@@ -173,11 +144,8 @@ fn next_char_boundary(s: &str, i: usize) -> usize {
 }
 
 fn run_tui() -> io::Result<TuiResult> {
-    let mut commands = load_commands();
+    let mut store = Store::load();
 
-    // Backend writes (frames) go to /dev/tty. We keep a second tty handle for
-    // setup/teardown sequences so stdout stays untouched — `$(rast)` captures
-    // only the chosen command we explicitly println at the end.
     let tty = OpenOptions::new()
         .read(true)
         .write(true)
@@ -221,6 +189,8 @@ fn run_tui() -> io::Result<TuiResult> {
     let mut status: Option<(String, Color)> = None;
 
     let result = loop {
+        let entries = store.get_all();
+
         let filter_str = match mode {
             InputMode::Normal => match parse_normal(&query) {
                 NormalParse::Search(s) => s.to_string(),
@@ -228,22 +198,15 @@ fn run_tui() -> io::Result<TuiResult> {
             },
             InputMode::Editing(_) => String::new(),
         };
-        let matches: Vec<usize> = filter_commands(&commands, &filter_str);
+        let matches: Vec<usize> = filter_commands(&entries, &filter_str);
         if matches.is_empty() {
             selected = 0;
         } else if selected >= matches.len() {
             selected = matches.len() - 1;
         }
 
-        let total = commands.len();
+        let total = entries.len();
         let shown = matches.len();
-        let cmds_view = &commands;
-        let matches_view = &matches;
-        let query_view = &query;
-        let cursor_view = cursor;
-        let selected_view = selected;
-        let status_view = status.clone();
-        let mode_view = mode;
 
         terminal.draw(|f| {
             let area = f.area();
@@ -256,21 +219,21 @@ fn run_tui() -> io::Result<TuiResult> {
                 ])
                 .split(area);
 
-            let (prompt_sym, prompt_color, prompt_title) = match mode_view {
+            let (prompt_sym, prompt_color, prompt_title) = match mode {
                 InputMode::Editing(_) => ("✎ ", Color::Yellow, " edit "),
-                InputMode::Normal => match parse_normal(query_view) {
-                    NormalParse::Add(_) | NormalParse::AddEmpty => ("+ ", Color::Green, " add "),
+                InputMode::Normal => match parse_normal(&query) {
+                    NormalParse::Add(_) | NormalParse::AddGlobal(_) | NormalParse::AddEmpty => {
+                        ("+ ", Color::Green, " add ")
+                    }
                     NormalParse::Search(_) => ("❯ ", Color::Cyan, " search "),
                 },
             };
 
-            // Visible terminal cursor inside the input box.
             let prompt_cells: u16 = 2;
-            let chars_before = query_view[..cursor_view].chars().count() as u16;
+            let chars_before = query[..cursor].chars().count() as u16;
             let inner_w = chunks[0].width.saturating_sub(2);
             let text_x = prompt_cells + chars_before;
 
-            // Horizontal scroll: keep cursor visible when text exceeds input width
             let scroll_offset = if inner_w > 0 && text_x >= inner_w {
                 text_x - inner_w + 1
             } else {
@@ -284,7 +247,7 @@ fn run_tui() -> io::Result<TuiResult> {
                         .fg(prompt_color)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Span::raw(query_view.as_str()),
+                Span::raw(query.as_str()),
             ]))
             .scroll((0, scroll_offset))
             .block(
@@ -305,36 +268,87 @@ fn run_tui() -> io::Result<TuiResult> {
             f.set_cursor_position((cx, cy));
 
             let list_h = chunks[1].height.saturating_sub(2) as usize;
-            let offset = if selected_view >= list_h {
-                selected_view + 1 - list_h
+            let offset = if selected >= list_h {
+                selected + 1 - list_h
             } else {
                 0
             };
 
-            let items: Vec<ListItem> = matches_view
+            let items: Vec<ListItem> = matches
                 .iter()
                 .enumerate()
                 .skip(offset)
                 .take(list_h.max(1))
                 .map(|(i, &idx)| {
-                    let line_str = &cmds_view[idx];
-                    let (cmd_part, comment_part) = split_command_comment(line_str);
-                    let is_sel = i == selected_view;
-                    let (marker, base_style) = if is_sel {
+                    let entry = &entries[idx];
+                    let (cmd_part, comment_part) = split_command_comment(&entry.cmd);
+                    let is_sel = i == selected;
+
+                    let (marker, base_style, tag_style) = if is_sel {
                         (
                             "▶ ",
                             Style::default()
                                 .fg(Color::Black)
                                 .bg(Color::Cyan)
                                 .add_modifier(Modifier::BOLD),
+                            Style::default().fg(Color::DarkGray).bg(Color::Cyan),
                         )
                     } else {
-                        ("  ", Style::default().fg(Color::Gray))
+                        (
+                            "  ",
+                            Style::default().fg(if entry.is_global {
+                                Color::DarkGray
+                            } else {
+                                Color::White
+                            }),
+                            Style::default().fg(if entry.is_global {
+                                Color::DarkGray
+                            } else {
+                                Color::Gray
+                            }),
+                        )
                     };
+
                     let mut spans = vec![
                         Span::styled(marker, base_style),
-                        Span::styled(cmd_part.to_string(), base_style),
+                        Span::styled(
+                            if entry.is_global { "[G] " } else { "[L] " },
+                            tag_style.add_modifier(Modifier::BOLD),
+                        ),
                     ];
+
+                    // Highlight placeholders {..} or <..>
+                    let mut current_idx = 0;
+                    let cmd_str = cmd_part;
+                    while let Some(start) = cmd_str[current_idx..].find(['{', '<']) {
+                        let absolute_start = current_idx + start;
+                        spans.push(Span::styled(
+                            &cmd_str[current_idx..absolute_start],
+                            base_style,
+                        ));
+
+                        let closing = if cmd_str[absolute_start..].starts_with('{') {
+                            '}'
+                        } else {
+                            '>'
+                        };
+                        if let Some(end) = cmd_str[absolute_start..].find(closing) {
+                            let absolute_end = absolute_start + end + 1;
+                            spans.push(Span::styled(
+                                &cmd_str[absolute_start..absolute_end],
+                                base_style.fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                            ));
+                            current_idx = absolute_end;
+                        } else {
+                            spans.push(Span::styled(&cmd_str[absolute_start..], base_style));
+                            current_idx = cmd_str.len();
+                            break;
+                        }
+                    }
+                    if current_idx < cmd_str.len() {
+                        spans.push(Span::styled(&cmd_str[current_idx..], base_style));
+                    }
+
                     if let Some(c) = comment_part {
                         let comment_style = if is_sel {
                             Style::default()
@@ -367,10 +381,10 @@ fn run_tui() -> io::Result<TuiResult> {
             );
             f.render_widget(list, chunks[1]);
 
-            let help_line = if let Some((msg, color)) = status_view {
-                Line::from(Span::styled(msg, Style::default().fg(color)))
+            let help_line = if let Some((msg, color)) = &status {
+                Line::from(Span::styled(msg, Style::default().fg(*color)))
             } else {
-                match mode_view {
+                match mode {
                     InputMode::Editing(_) => Line::from(vec![
                         Span::styled("enter", Style::default().fg(Color::Yellow)),
                         Span::raw(" save  "),
@@ -381,7 +395,9 @@ fn run_tui() -> io::Result<TuiResult> {
                         Span::styled("enter", Style::default().fg(Color::Green)),
                         Span::raw(" pick  "),
                         Span::styled("/new", Style::default().fg(Color::Green)),
-                        Span::raw(" add (# tag)  "),
+                        Span::raw(" add local  "),
+                        Span::styled("/newg", Style::default().fg(Color::Green)),
+                        Span::raw(" add global  "),
                         Span::styled("^e", Style::default().fg(Color::Yellow)),
                         Span::raw(" edit  "),
                         Span::styled("^d", Style::default().fg(Color::Red)),
@@ -395,7 +411,6 @@ fn run_tui() -> io::Result<TuiResult> {
             f.render_widget(help, chunks[2]);
         })?;
 
-        // one-shot status
         status = None;
 
         let Event::Key(KeyEvent {
@@ -425,16 +440,18 @@ fn run_tui() -> io::Result<TuiResult> {
             (KeyCode::Char('c'), KeyModifiers::CONTROL) => break TuiResult::Cancel,
 
             (KeyCode::Enter, _) => match mode {
-                InputMode::Editing(orig) => {
+                InputMode::Editing(idx) => {
                     let new_text = query.trim().to_string();
                     if new_text.is_empty() {
                         status = Some(("cannot save empty entry".to_string(), Color::Yellow));
                     } else {
-                        if orig < commands.len() {
-                            commands[orig] = new_text.clone();
-                            let _ = save_commands(&commands);
-                            status = Some((format!("updated: {}", new_text), Color::Green));
-                        }
+                        let entry = &entries[idx];
+                        let _ = store.update_command(
+                            entry.is_global,
+                            entry.original_index,
+                            new_text.clone(),
+                        );
+                        status = Some((format!("updated: {}", new_text), Color::Green));
                         mode = InputMode::Normal;
                         query.clear();
                         cursor = 0;
@@ -444,9 +461,21 @@ fn run_tui() -> io::Result<TuiResult> {
                 InputMode::Normal => match parse_normal(&query) {
                     NormalParse::Add(cmd) => {
                         let to_save = cmd.to_string();
-                        match push_command(&mut commands, &to_save) {
+                        match store.add_command(&to_save, false) {
                             Ok(_) => {
-                                status = Some((format!("saved: {}", to_save), Color::Green));
+                                status = Some((format!("saved local: {}", to_save), Color::Green));
+                                query.clear();
+                                cursor = 0;
+                                selected = 0;
+                            }
+                            Err(e) => status = Some((format!("save failed: {}", e), Color::Red)),
+                        }
+                    }
+                    NormalParse::AddGlobal(cmd) => {
+                        let to_save = cmd.to_string();
+                        match store.add_command(&to_save, true) {
+                            Ok(_) => {
+                                status = Some((format!("saved global: {}", to_save), Color::Green));
                                 query.clear();
                                 cursor = 0;
                                 selected = 0;
@@ -462,7 +491,9 @@ fn run_tui() -> io::Result<TuiResult> {
                     }
                     NormalParse::Search(_) => {
                         if let Some(&idx) = matches.get(selected) {
-                            break TuiResult::Pick(commands[idx].clone());
+                            let entry = entries[idx].clone();
+                            let _ = store.increment_usage(entry.is_global, entry.original_index);
+                            break TuiResult::Pick(entry);
                         }
                     }
                 },
@@ -473,7 +504,7 @@ fn run_tui() -> io::Result<TuiResult> {
                     && matches!(parse_normal(&query), NormalParse::Search(_))
                     && let Some(&idx) = matches.get(selected)
                 {
-                    let text = commands[idx].clone();
+                    let text = entries[idx].cmd.clone();
                     cursor = text.len();
                     query = text;
                     mode = InputMode::Editing(idx);
@@ -485,9 +516,15 @@ fn run_tui() -> io::Result<TuiResult> {
                     && matches!(parse_normal(&query), NormalParse::Search(_))
                     && let Some(&idx) = matches.get(selected)
                 {
-                    let removed = commands.remove(idx);
-                    let _ = save_commands(&commands);
-                    status = Some((format!("deleted: {}", removed), Color::Red));
+                    let entry = &entries[idx];
+                    match store.delete_command(entry.is_global, entry.original_index) {
+                        Ok(removed) => {
+                            status = Some((format!("deleted: {}", removed), Color::Red));
+                        }
+                        Err(e) => {
+                            status = Some((format!("delete failed: {}", e), Color::Red));
+                        }
+                    }
                 }
             }
 
@@ -581,62 +618,14 @@ fn run_tui() -> io::Result<TuiResult> {
 
 fn main() {
     match run_tui() {
-        Ok(TuiResult::Pick(line)) => {
-            // Strip the optional "# tag" portion before handing to the shell —
-            // the comment is metadata for search, not for execution.
-            let (cmd_part, _) = split_command_comment(&line);
+        Ok(TuiResult::Pick(entry)) => {
+            let (cmd_part, _) = split_command_comment(&entry.cmd);
             let _ = writeln!(io::stdout(), "{}", cmd_part);
         }
         Ok(TuiResult::Cancel) => {}
         Err(e) => {
-            eprintln!("rast: {}", e);
+            eprintln!("cbox: {}", e);
             std::process::exit(1);
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn split_command_comment_keeps_command_and_tag() {
-        assert_eq!(
-            split_command_comment("docker compose up -d # start stack"),
-            ("docker compose up -d", Some("# start stack"))
-        );
-        assert_eq!(
-            split_command_comment("echo foo#bar"),
-            ("echo foo#bar", None)
-        );
-        assert_eq!(
-            split_command_comment("# only metadata"),
-            ("", Some("# only metadata"))
-        );
-    }
-
-    #[test]
-    fn fuzzy_score_requires_all_tokens_case_insensitively() {
-        assert!(fuzzy_score("docker api", "docker compose logs -f api # logs").is_some());
-        assert!(fuzzy_score("DOCKER", "docker compose up").is_some());
-        assert!(fuzzy_score("missing", "docker compose up").is_none());
-    }
-
-    #[test]
-    fn filter_empty_query_prefers_recent_commands() {
-        let commands = vec![
-            "first".to_string(),
-            "second".to_string(),
-            "third".to_string(),
-        ];
-        assert_eq!(filter_commands(&commands, ""), vec![2, 1, 0]);
-    }
-
-    #[test]
-    fn char_boundaries_handle_multibyte_text() {
-        let text = "aλ🚀";
-        let after_lambda = next_char_boundary(text, 1);
-        assert_eq!(&text[1..after_lambda], "λ");
-        assert_eq!(prev_char_boundary(text, text.len()), after_lambda);
     }
 }
