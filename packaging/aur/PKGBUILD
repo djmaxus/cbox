@@ -1,4 +1,4 @@
-# Maintainer: mukh4w
+# Maintainer: mukh4w <mukh4w@gmail.com>
 pkgname=cbox-bin
 pkgver=0.1.0
 pkgrel=1
@@ -9,8 +9,11 @@ license=('MIT')
 provides=('cbox')
 conflicts=('cbox')
 
-source_x86_64=("https://github.com/mukh4w/cbox/releases/download/v${pkgver}/cbox-x86_64-unknown-linux-musl.tar.gz")
-source_aarch64=("https://github.com/mukh4w/cbox/releases/download/v${pkgver}/cbox-aarch64-unknown-linux-musl.tar.gz")
+source_x86_64=("${pkgname}-${pkgver}-x86_64.tar.gz::https://github.com/mukh4w/cbox/releases/download/v${pkgver}/cbox-x86_64-unknown-linux-musl.tar.gz")
+sha256sums_x86_64=('bcf9b740e55b41f007d8567f236eb51b6f9c6e3188e1845e88f3323f8b13895f')
+
+source_aarch64=("${pkgname}-${pkgver}-aarch64.tar.gz::https://github.com/mukh4w/cbox/releases/download/v${pkgver}/cbox-aarch64-unknown-linux-musl.tar.gz")
+sha256sums_aarch64=('85811e08b0fdaa2365bd9e8f16c5553bc1cb3d2e661d8d1e97dde8fe6a097df3')
 
 package() {
     install -Dm755 "${srcdir}/cbox" "${pkgdir}/usr/bin/cbox"
