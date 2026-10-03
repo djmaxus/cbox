@@ -1,5 +1,5 @@
 use std::fs::OpenOptions;
-use std::io::{self, Write, IsTerminal};
+use std::io;
 use std::env;
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -628,124 +628,131 @@ fn print_init_script(shell: &str) {
         "bash" => {
             println!("{}", r#"
 # cbox bash integration
-# bind to Ctrl-G
 _cbox_widget() {
-  local out cmd_type cmd_content
-  out="$(command cbox </dev/tty)" || return
-  cmd_type=$(head -n 1 <<< "$out")
-  cmd_content=$(tail -n +2 <<< "$out")
-
-  if [ -z "$cmd_type" ]; then
+  local out ret
+  out="$(command cbox </dev/tty)"
+  ret=$?
+  if [ $ret -eq 1 ] || [ -z "$out" ]; then
     return
   fi
 
-  if [ "$cmd_type" = "EXECUTE" ]; then
-    READLINE_LINE="$cmd_content"
+  if [ $ret -eq 2 ]; then
+    READLINE_LINE="$out"
     READLINE_POINT=${#READLINE_LINE}
-    # tell readline to accept the line
     bind '"\e[0n": accept-line'
     printf '\e[5n'
-  elif [ "$cmd_type" = "INJECT" ]; then
-    READLINE_LINE="$cmd_content"
-    # Placeholder search: {...} or <...>
-    if [[ "$cmd_content" =~ (\{.*\}|\<.*\>) ]]; then
-        # bash regex match sets BASH_REMATCH
-        # BASH_REMATCH[1] is the placeholder
-        # calculate position
-        local prefix="${cmd_content%%${BASH_REMATCH[1]}*}"
-        READLINE_POINT=${#prefix}
-    else
-        READLINE_POINT=${#READLINE_LINE}
-    fi
+  else
+    READLINE_LINE="$out"
+    READLINE_POINT=${#READLINE_LINE}
   fi
 }
 bind -x '"\C-g": _cbox_widget' 2>/dev/null || true
+
+cbox() {
+  if [ $# -gt 0 ]; then
+    command cbox "$@"
+    return
+  fi
+  local out ret
+  out="$(command cbox </dev/tty)"
+  ret=$?
+  if [ $ret -eq 1 ] || [ -z "$out" ]; then
+    return
+  fi
+  if [ $ret -eq 2 ]; then
+    history -s "$out"
+    eval "$out"
+  else
+    history -s "$out"
+    bind '"\e[0n": "'"$out"'"'
+    printf '\e[5n'
+  fi
+}
 "#);
         }
         "zsh" => {
             println!("{}", r#"
 # cbox zsh integration
-# bind to Ctrl-G or use as a function
 cbox_widget() {
-  local out cmd_type cmd_content
-  out="$(command cbox </dev/tty)" || return
-  
-  # split by newline
-  local lines=("${(@f)out}")
-  if [ ${#lines[@]} -lt 2 ]; then
+  local out ret
+  out="$(command cbox </dev/tty)"
+  ret=$?
+  if [ $ret -eq 1 ] || [ -z "$out" ]; then
     zle && zle redisplay
     return
   fi
 
-  cmd_type="${lines[1]}"
-  cmd_content="${(j:\n:)lines[2,-1]}"
-
-  if [ "$cmd_type" = "EXECUTE" ]; then
-    BUFFER="$cmd_content"
-    CURSOR=${#BUFFER}
+  BUFFER="$out"
+  CURSOR=${#BUFFER}
+  if [ $ret -eq 2 ]; then
     zle accept-line
-  elif [ "$cmd_type" = "INJECT" ]; then
-    BUFFER="$cmd_content"
-    # Find placeholder {...} or <...>
-    if [[ "$BUFFER" =~ '(\{[^{}]+\}|\<[^<>]+\>)' ]]; then
-      local match_idx="${mbegin[1]}"
-      # mbegin is 1-indexed, cursor is 0-indexed
-      CURSOR=$((match_idx - 1))
-    else
-      CURSOR=${#BUFFER}
-    fi
   fi
   zle && zle redisplay
 }
 zle -N cbox_widget
 bindkey '^g' cbox_widget
+
+cbox() {
+  if [ $# -gt 0 ]; then
+    command cbox "$@"
+    return
+  fi
+  local out ret
+  out="$(command cbox </dev/tty)"
+  ret=$?
+  if [ $ret -eq 1 ] || [ -z "$out" ]; then
+    return
+  fi
+  if [ $ret -eq 2 ]; then
+    print -s "$out"
+    eval "$out"
+  else
+    print -z -- "$out"
+  fi
+}
 "#);
         }
         "fish" => {
             println!("{}", r#"
 # cbox fish integration
-# bind to Ctrl-G
 function _cbox_widget
     set -l out (command cbox </dev/tty)
-    if test -z "$out"
+    set -l ret $status
+    if test $ret -eq 1; or test -z "$out"
         commandline -f repaint
         return
     end
 
-    set -l cmd_type $out[1]
-    set -l cmd_content (string join "\n" $out[2..-1])
-
-    if test "$cmd_type" = "EXECUTE"
-        commandline -r -- $cmd_content
+    commandline -r -- $out
+    commandline -C (string length -- $out)
+    if test $ret -eq 2
         commandline -f execute
-    else if test "$cmd_type" = "INJECT"
-        commandline -r -- $cmd_content
-        
-        # Placeholder cursor placement
-        set -l match (string match -r -i -n '(\{[^{}]+\}|\<[^<>]+\>)' $cmd_content)
-        if test -n "$match"
-            set -l match_parts (string split ":" $match)
-            # string split ":" returns offset and length
-            # fish commandline -C takes 0-based offset
-            set -l pos (math $match_parts[1] - 1)
-            commandline -C $pos
-        else
-            commandline -C (string length -- $cmd_content)
-        end
     end
     commandline -f repaint
 end
 bind \cg _cbox_widget
+
+function cbox
+    if count $argv > /dev/null
+        command cbox $argv
+        return
+    end
+    set -l out (command cbox </dev/tty)
+    set -l ret $status
+    if test $ret -eq 1; or test -z "$out"
+        return
+    end
+    if test $ret -eq 2
+        eval $out
+    else
+        echo $out
+    end
+end
 "#);
         }
         "nushell" | "nu" => {
             println!("{}", r#"
 # cbox nushell integration
-# Add this to your config.nu
-# In nushell, we define a custom command 'cbox' that invokes the binary
-# and uses the results. But to modify the prompt and cursor, we use keybindings.
-# Wait, Nu's keybindings take a custom closure.
-# Usage in config.nu:
 # $env.config = ($env.config | upsert keybindings (
 #     $env.config.keybindings | append {
 #         name: cbox_widget
@@ -755,25 +762,15 @@ bind \cg _cbox_widget
 #         event: {
 #             send: executehostcommand
 #             cmd: "
-#                 let out = (^cbox < /dev/tty | lines);
-#                 if ($out | is-empty) { return };
-#                 let cmd_type = ($out | first);
-#                 let cmd_content = ($out | skip 1 | str join '\n');
-#                 if $cmd_type == 'EXECUTE' {
-#                     commandline edit --replace $cmd_content;
-#                     # Note: Nushell currently doesn't have a built-in way to automatically execute
-#                     # the replaced commandline from a keybinding script without a workaround.
-#                 } else {
-#                     commandline edit --replace $cmd_content;
-#                     # Cursor placement
-#                     # Regex match not natively supported in exact index easily in nushell 0.9x without extra plugins
-#                     # We will just append for now
-#                 }
+#                 let out = (^cbox < /dev/tty | complete);
+#                 if $out.exit_code == 1 { return };
+#                 let cmd_content = $out.stdout | str trim;
+#                 if ($cmd_content | is-empty) { return };
+#                 commandline edit --replace $cmd_content;
 #             "
 #         }
 #     }
 # ))
-# Note: Full nu integration requires manual config insertion.
 "#);
         }
         _ => {
@@ -792,30 +789,16 @@ fn main() {
     match run_tui() {
         Ok(TuiResult::Pick { entry, execute }) => {
             let (cmd_part, _) = split_command_comment(&entry.cmd);
-            if io::stdout().is_terminal() {
-                // Run interactively without shell wrapper capture
-                if execute {
-                    // Try to execute directly using sh
-                    let _ = std::process::Command::new("sh")
-                        .arg("-c")
-                        .arg(cmd_part)
-                        .status();
-                } else {
-                    // Just print for copy-pasting since we can't inject
-                    let _ = writeln!(io::stdout(), "{}", cmd_part);
-                }
+            println!("{}", cmd_part);
+            if execute {
+                std::process::exit(2);
             } else {
-                // Captured by shell wrapper
-                if execute {
-                    let _ = writeln!(io::stdout(), "EXECUTE");
-                    let _ = writeln!(io::stdout(), "{}", cmd_part);
-                } else {
-                    let _ = writeln!(io::stdout(), "INJECT");
-                    let _ = writeln!(io::stdout(), "{}", cmd_part);
-                }
+                std::process::exit(0);
             }
         }
-        Ok(TuiResult::Cancel) => {}
+        Ok(TuiResult::Cancel) => {
+            std::process::exit(1);
+        }
         Err(e) => {
             eprintln!("cbox: {}", e);
             std::process::exit(1);
