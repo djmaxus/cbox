@@ -2,7 +2,10 @@ use std::fs::OpenOptions;
 use std::io::{self, IsTerminal};
 use std::env;
 
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
+    PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
@@ -163,7 +166,11 @@ fn run_tui() -> io::Result<TuiResult> {
         })?;
 
     enable_raw_mode()?;
-    if let Err(e) = execute!(setup, EnterAlternateScreen) {
+    if let Err(e) = execute!(
+        setup,
+        EnterAlternateScreen,
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+    ) {
         let _ = disable_raw_mode();
         return Err(e);
     }
@@ -400,7 +407,7 @@ fn run_tui() -> io::Result<TuiResult> {
                         Span::styled("enter", Style::default().fg(Color::Green)),
                         Span::raw(" inject  "),
                         Span::styled("^enter", Style::default().fg(Color::Green)),
-                        Span::raw(" exec  "),
+                        Span::raw(" (или alt+enter) exec  "),
                         Span::styled("/new", Style::default().fg(Color::Green)),
                         Span::raw(" add local  "),
                         Span::styled("/newg", Style::default().fg(Color::Green)),
@@ -499,7 +506,7 @@ fn run_tui() -> io::Result<TuiResult> {
                     NormalParse::Search(_) => {
                         if let Some(&idx) = matches.get(selected) {
                             let entry = entries[idx].clone();
-                            let execute = modifiers.contains(KeyModifiers::CONTROL);
+                            let execute = modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT);
                             break TuiResult::Pick { entry, execute };
                         }
                     }
@@ -619,7 +626,11 @@ fn run_tui() -> io::Result<TuiResult> {
     };
 
     let _ = disable_raw_mode();
-    let _ = execute!(setup, LeaveAlternateScreen);
+    let _ = execute!(
+        setup,
+        PopKeyboardEnhancementFlags,
+        LeaveAlternateScreen
+    );
     Ok(result)
 }
 
