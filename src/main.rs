@@ -313,38 +313,7 @@ fn run_tui() -> io::Result<TuiResult> {
                             tag_style.add_modifier(Modifier::BOLD),
                         ),
                     ];
-
-                    // Highlight placeholders {..} or <..>
-                    let mut current_idx = 0;
-                    let cmd_str = cmd_part;
-                    while let Some(start) = cmd_str[current_idx..].find(['{', '<']) {
-                        let absolute_start = current_idx + start;
-                        spans.push(Span::styled(
-                            &cmd_str[current_idx..absolute_start],
-                            base_style,
-                        ));
-
-                        let closing = if cmd_str[absolute_start..].starts_with('{') {
-                            '}'
-                        } else {
-                            '>'
-                        };
-                        if let Some(end) = cmd_str[absolute_start..].find(closing) {
-                            let absolute_end = absolute_start + end + 1;
-                            spans.push(Span::styled(
-                                &cmd_str[absolute_start..absolute_end],
-                                base_style.fg(Color::Yellow).add_modifier(Modifier::BOLD),
-                            ));
-                            current_idx = absolute_end;
-                        } else {
-                            spans.push(Span::styled(&cmd_str[absolute_start..], base_style));
-                            current_idx = cmd_str.len();
-                            break;
-                        }
-                    }
-                    if current_idx < cmd_str.len() {
-                        spans.push(Span::styled(&cmd_str[current_idx..], base_style));
-                    }
+                    spans.push(Span::styled(cmd_part, base_style));
 
                     if let Some(c) = comment_part {
                         let comment_style = if is_sel {
@@ -389,31 +358,8 @@ fn run_tui() -> io::Result<TuiResult> {
                     Span::raw(" "),
                 ];
                 
-                // Highlight placeholders in preview too
                 let (cmd_part, comment_part) = split_command_comment(&entry.cmd);
-                let mut current_idx = 0;
-                let cmd_str = cmd_part;
-                while let Some(start) = cmd_str[current_idx..].find(['{', '<']) {
-                    let absolute_start = current_idx + start;
-                    spans.push(Span::styled(&cmd_str[current_idx..absolute_start], Style::default().fg(Color::White)));
-                    
-                    let closing = if cmd_str[absolute_start..].starts_with('{') { '}' } else { '>' };
-                    if let Some(end) = cmd_str[absolute_start..].find(closing) {
-                        let absolute_end = absolute_start + end + 1;
-                        spans.push(Span::styled(
-                            &cmd_str[absolute_start..absolute_end],
-                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-                        ));
-                        current_idx = absolute_end;
-                    } else {
-                        spans.push(Span::styled(&cmd_str[absolute_start..], Style::default().fg(Color::White)));
-                        current_idx = cmd_str.len();
-                        break;
-                    }
-                }
-                if current_idx < cmd_str.len() {
-                    spans.push(Span::styled(&cmd_str[current_idx..], Style::default().fg(Color::White)));
-                }
+                spans.push(Span::styled(cmd_part, Style::default().fg(Color::White)));
 
                 if let Some(c) = comment_part {
                     spans.push(Span::raw("  "));
@@ -453,7 +399,7 @@ fn run_tui() -> io::Result<TuiResult> {
                     InputMode::Normal => Line::from(vec![
                         Span::styled("enter", Style::default().fg(Color::Green)),
                         Span::raw(" inject  "),
-                        Span::styled("^x", Style::default().fg(Color::Green)),
+                        Span::styled("^enter", Style::default().fg(Color::Green)),
                         Span::raw(" exec  "),
                         Span::styled("/new", Style::default().fg(Color::Green)),
                         Span::raw(" add local  "),
@@ -558,16 +504,6 @@ fn run_tui() -> io::Result<TuiResult> {
                         }
                     }
                 },
-            },
-
-            (KeyCode::Char('x'), KeyModifiers::CONTROL) => {
-                if matches!(mode, InputMode::Normal)
-                    && matches!(parse_normal(&query), NormalParse::Search(_))
-                    && let Some(&idx) = matches.get(selected)
-                {
-                    let entry = entries[idx].clone();
-                    break TuiResult::Pick { entry, execute: true };
-                }
             }
 
             (KeyCode::Char('e'), KeyModifiers::CONTROL) => {

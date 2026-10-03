@@ -52,10 +52,27 @@ case ":$PATH:" in
        echo "       export PATH=\"$BIN_DIR:\$PATH\"" ;;
 esac
 
+echo "==> Configuring shells..."
+if command -v zsh >/dev/null 2>&1 && [ -f "$HOME/.zshrc" ]; then
+    if ! grep -q 'cbox init zsh' "$HOME/.zshrc"; then
+        echo 'eval "$(cbox init zsh)"' >> "$HOME/.zshrc"
+        echo "  -> Appended cbox initialization to ~/.zshrc"
+    fi
+fi
+
+if command -v bash >/dev/null 2>&1 && [ -f "$HOME/.bashrc" ]; then
+    if ! grep -q 'cbox init bash' "$HOME/.bashrc"; then
+        echo 'eval "$(cbox init bash)"' >> "$HOME/.bashrc"
+        echo "  -> Appended cbox initialization to ~/.bashrc"
+    fi
+fi
+
+if command -v fish >/dev/null 2>&1 && [ -f "$HOME/.config/fish/config.fish" ]; then
+    if ! grep -q 'cbox init fish' "$HOME/.config/fish/config.fish"; then
+        echo 'cbox init fish | source' >> "$HOME/.config/fish/config.fish"
+        echo "  -> Appended cbox initialization to ~/.config/fish/config.fish"
+    fi
+fi
+
 echo
-echo "Done."
-echo "To enable shell integration, add the following to your configuration:"
-echo "  zsh:   eval \"\$(cbox init zsh)\""
-echo "  bash:  eval \"\$(cbox init bash)\""
-echo "  fish:  cbox init fish | source"
-echo "  nu:    cbox init nu (see output for manual instructions)"
+echo "Done! Restart your shell or source your config file."
