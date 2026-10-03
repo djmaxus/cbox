@@ -2,16 +2,16 @@
 name = "cbox-tui"
 version = "0.1.0"
 edition = "2024"
-
-[[bin]]
-name = "cbox"
-path = "src/main.rs"
 description = "A tiny Rust TUI launcher for saving, fuzzy-finding, and injecting project-local shell commands. (Command Box)"
 license = "MIT"
 repository = "https://github.com/mukh4w/cbox"
 readme = "README.md"
 keywords = ["tui", "cli", "commands", "ratatui", "launcher"]
 categories = ["command-line-utilities"]
+
+[[bin]]
+name = "cbox"
+path = "src/main.rs"
 
 [dependencies]
 ratatui = "0.29"

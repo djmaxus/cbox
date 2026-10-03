@@ -1,6 +1,6 @@
+use std::env;
 use std::fs::OpenOptions;
 use std::io::{self, IsTerminal};
-use std::env;
 
 use crossterm::event::{
     self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, KeyboardEnhancementFlags,
@@ -358,24 +358,39 @@ fn run_tui() -> io::Result<TuiResult> {
             let preview_content = if let Some(&idx) = matches.get(selected) {
                 let entry = &entries[idx];
                 let tag = if entry.is_global { "[G]" } else { "[L]" };
-                let tag_color = if entry.is_global { Color::DarkGray } else { Color::Gray };
-                
+                let tag_color = if entry.is_global {
+                    Color::DarkGray
+                } else {
+                    Color::Gray
+                };
+
                 let mut spans = vec![
-                    Span::styled(tag, Style::default().fg(tag_color).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        tag,
+                        Style::default().fg(tag_color).add_modifier(Modifier::BOLD),
+                    ),
                     Span::raw(" "),
                 ];
-                
+
                 let (cmd_part, comment_part) = split_command_comment(&entry.cmd);
                 spans.push(Span::styled(cmd_part, Style::default().fg(Color::White)));
 
                 if let Some(c) = comment_part {
                     spans.push(Span::raw("  "));
-                    spans.push(Span::styled(c.to_string(), Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC)));
+                    spans.push(Span::styled(
+                        c.to_string(),
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::ITALIC),
+                    ));
                 }
-                
+
                 vec![Line::from(spans)]
             } else {
-                vec![Line::from(Span::styled("No command selected", Style::default().fg(Color::DarkGray)))]
+                vec![Line::from(Span::styled(
+                    "No command selected",
+                    Style::default().fg(Color::DarkGray),
+                ))]
             };
 
             let preview = Paragraph::new(preview_content)
@@ -511,7 +526,7 @@ fn run_tui() -> io::Result<TuiResult> {
                         }
                     }
                 },
-            }
+            },
 
             (KeyCode::Char('e'), KeyModifiers::CONTROL) => {
                 if matches!(mode, InputMode::Normal)
@@ -626,11 +641,7 @@ fn run_tui() -> io::Result<TuiResult> {
     };
 
     let _ = disable_raw_mode();
-    let _ = execute!(
-        setup,
-        PopKeyboardEnhancementFlags,
-        LeaveAlternateScreen
-    );
+    let _ = execute!(setup, PopKeyboardEnhancementFlags, LeaveAlternateScreen);
     Ok(result)
 }
 
@@ -639,10 +650,11 @@ fn print_init_script(shell: &str) {
     let exe_path = env::current_exe()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|_| "cbox".to_string());
-        
+
     match shell {
         "bash" => {
-            println!(r#"
+            println!(
+                r#"
 # cbox bash integration
 _cbox_widget() {{
   local out ret
@@ -684,10 +696,12 @@ cbox() {{
     printf '\e[5n'
   fi
 }}
-"#);
+"#
+            );
         }
         "zsh" => {
-            println!(r#"
+            println!(
+                r#"
 # cbox zsh integration
 cbox_widget() {{
   local out ret
@@ -726,10 +740,12 @@ cbox() {{
     print -z -- "$out"
   fi
 }}
-"#);
+"#
+            );
         }
         "fish" => {
-            println!(r#"
+            println!(
+                r#"
 # cbox fish integration
 function _cbox_widget
     set -l out ("{exe_path}" </dev/tty)
@@ -764,10 +780,12 @@ function cbox
         echo $out
     end
 end
-"#);
+"#
+            );
         }
         "nushell" | "nu" => {
-            println!(r#"
+            println!(
+                r#"
 # cbox nushell integration
 # $env.config = ($env.config | upsert keybindings (
 #     $env.config.keybindings | append {{
@@ -787,7 +805,8 @@ end
 #         }}
 #     }}
 # ))
-"#);
+"#
+            );
         }
         _ => {
             eprintln!("cbox: unsupported shell '{}'", shell);

@@ -19,15 +19,20 @@ pub struct Store {
 impl Store {
     pub fn load() -> Self {
         let local_path = PathBuf::from(".cbox");
-        let local_path = if local_path.exists() || fs::metadata(".").map(|m| !m.permissions().readonly()).unwrap_or(false) {
+        let local_path = if local_path.exists()
+            || fs::metadata(".")
+                .map(|m| !m.permissions().readonly())
+                .unwrap_or(false)
+        {
             Some(local_path)
         } else {
             None
         };
 
         let mut global_path = dirs::config_dir().map(|p| p.join("cbox").join("commands"));
-        if global_path.is_none() 
-            && let Some(home) = dirs::home_dir() {
+        if global_path.is_none()
+            && let Some(home) = dirs::home_dir()
+        {
             global_path = Some(home.join(".cbox_global"));
         }
 
@@ -117,7 +122,12 @@ impl Store {
         Ok(())
     }
 
-    pub fn update_command(&mut self, is_global: bool, original_index: usize, new_text: String) -> io::Result<()> {
+    pub fn update_command(
+        &mut self,
+        is_global: bool,
+        original_index: usize,
+        new_text: String,
+    ) -> io::Result<()> {
         if is_global {
             if original_index < self.global_cmds.len() {
                 self.global_cmds[original_index] = new_text;
