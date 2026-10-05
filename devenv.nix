@@ -18,8 +18,8 @@
       enable = true;
       channel = "stable";
     };
-    ruby.enable = false;
     shell.enable = false;
+    ruby.enable = true; # to develop Homebrew packaging
   };
 
   # https://devenv.sh/processes/
